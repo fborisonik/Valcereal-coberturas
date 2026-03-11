@@ -1,5 +1,5 @@
 # ============================================================
-#   VALCEREAL — Coberturas  v2.0
+#   VALCEREAL — Coberturas  v3.0
 #   Analizador de Opciones Agro · Streamlit Web App
 # ============================================================
 
@@ -11,6 +11,7 @@ import matplotlib.patches as mpatches
 import matplotlib.ticker as mticker
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import streamlit as st
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -32,16 +33,18 @@ VC_BLANCO     = "#FFFFFF"
 VC_NEGRO      = "#1A1A1A"
 VC_ROJO       = "#C0392B"
 
+# Paleta para múltiples operaciones
+COLORES_OPS = ["#009B67", "#2E86C1", "#8E44AD", "#E67E22", "#E74C3C", "#17A589"]
+
+MESES_VALIDOS = ["Mayo", "Julio", "Septiembre", "Diciembre", "Marzo"]
+
 # ── CSS ──────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
   [data-testid="stAppViewContainer"] {{ background-color: {VC_GRIS_FONDO}; }}
-
-  /* Sidebar */
   [data-testid="stSidebar"] {{ background-color: {VC_VERDE_OSC}; }}
   [data-testid="stSidebar"] * {{ color: white !important; }}
 
-  /* Cabeceras de sección */
   .seccion {{
     background-color: {VC_VERDE_OSC};
     color: white !important;
@@ -49,11 +52,17 @@ st.markdown(f"""
     border-radius: 6px;
     font-weight: 600;
     font-size: 0.95rem;
-    margin: 0.8rem 0 0.6rem 0;
+    margin: 1rem 0 0.5rem 0;
+  }}
+  .hint {{
+    font-size: 0.8rem;
+    color: {VC_GRIS_LIN};
+    margin-top: -0.3rem;
+    margin-bottom: 0.5rem;
   }}
 
   /* Botón Calcular */
-  [data-testid="stFormSubmitButton"] button {{
+  div[data-testid="stButton"] > button[kind="primary"] {{
     background-color: {VC_VERDE} !important;
     color: white !important;
     border: none !important;
@@ -62,9 +71,9 @@ st.markdown(f"""
     font-weight: 700 !important;
     font-size: 1.1rem !important;
     width: 100% !important;
-    margin-top: 0.5rem;
+    margin-top: 0.8rem;
   }}
-  [data-testid="stFormSubmitButton"] button:hover {{
+  div[data-testid="stButton"] > button[kind="primary"]:hover {{
     background-color: {VC_VERDE_OSC} !important;
   }}
 
@@ -101,12 +110,12 @@ with st.sidebar:
     st.markdown("""
     **Cómo usar:**
     1. Completá los datos del cliente
-    2. Ingresá el futuro de referencia
-    3. Configurá la opción
+    2. Agregá los futuros de referencia
+    3. Cargá una o más opciones
     4. Hacé clic en **Calcular posición**
     """)
     st.markdown("---")
-    st.caption(f"v2.0  ·  {date.today().strftime('%d/%m/%Y')}")
+    st.caption(f"v3.0  ·  {date.today().strftime('%d/%m/%Y')}")
 
 # ── Header ───────────────────────────────────────────────────
 st.markdown(f"""
@@ -121,206 +130,280 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ════════════════════════════════════════════════════════════
+# SECCIÓN 1 — Cliente
+# ════════════════════════════════════════════════════════════
+st.markdown('<div class="seccion">👤 &nbsp; Cliente</div>', unsafe_allow_html=True)
+c1, c2, c3 = st.columns([2, 1, 1])
+with c1:
+    CLIENTE     = st.text_input("Nombre del cliente", value="Productor Agropecuario",
+                                placeholder="Ej: Juan García")
+with c2:
+    PRODUCTO    = st.selectbox("Producto", options=["Soja", "Maíz", "Trigo"])
+with c3:
+    PRECIO_SPOT = st.number_input("Precio spot (USD/tn)", value=323.0,
+                                  step=0.5, format="%.2f", min_value=1.0)
 
 # ════════════════════════════════════════════════════════════
-# FORMULARIO DE INPUTS
+# SECCIÓN 2 — Futuros (tabla dinámica)
 # ════════════════════════════════════════════════════════════
-with st.form("form_posicion"):
+st.markdown('<div class="seccion">📈 &nbsp; Futuros de referencia</div>',
+            unsafe_allow_html=True)
+st.markdown('<p class="hint">Podés agregar múltiples contratos de futuros. '
+            'Usá el botón ＋ al final de la tabla.</p>', unsafe_allow_html=True)
 
-    # ── Sección 1: Cliente ───────────────────────────────────
-    st.markdown('<div class="seccion">👤 &nbsp; Cliente</div>', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([2, 1, 1])
-    with c1:
-        CLIENTE     = st.text_input("Nombre del cliente", value="Productor Agropecuario",
-                                    placeholder="Ej: Juan García")
-    with c2:
-        PRODUCTO    = st.selectbox("Producto", options=["Soja", "Maíz", "Trigo"])
-    with c3:
-        PRECIO_SPOT = st.number_input("Precio spot (USD/tn)", value=323.0,
-                                      step=0.5, format="%.2f", min_value=1.0)
+futuros_default = pd.DataFrame({
+    "Mes":             ["Mayo"],
+    "Precio (USD/tn)": [315.0],
+})
 
-    # ── Sección 2: Futuros ───────────────────────────────────
-    st.markdown('<div class="seccion">📈 &nbsp; Futuro de referencia</div>', unsafe_allow_html=True)
-    c4, c5, _ = st.columns([1, 1, 2])
-    with c4:
-        MES         = st.selectbox("Mes de vencimiento",
-                                   options=["Mayo", "Julio", "Septiembre", "Diciembre", "Marzo"])
-    with c5:
-        PRECIO_FUT  = st.number_input("Precio del futuro (USD/tn)", value=315.0,
-                                      step=0.5, format="%.2f", min_value=1.0)
-
-    # ── Sección 3: Opción ────────────────────────────────────
-    st.markdown(
-        '<div class="seccion">⚙️ &nbsp; Opción &nbsp;'
-        '<span style="font-weight:400; font-size:0.83rem;">'
-        '(mismo mes de vencimiento)</span></div>',
-        unsafe_allow_html=True
-    )
-    c6, c7, c8, c9 = st.columns(4)
-    with c6:
-        TIPO        = st.selectbox("Tipo",     options=["Put", "Call"])
-    with c7:
-        POSICION    = st.selectbox("Posición", options=["Compra", "Venta"])
-    with c8:
-        STRIKE      = st.number_input("Strike (USD/tn)", value=315.0,
-                                      step=0.5, format="%.2f", min_value=1.0)
-    with c9:
-        PRIMA       = st.number_input("Prima (USD/tn)", value=3.5,
-                                      step=0.05, format="%.2f", min_value=0.01)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ── Botón ────────────────────────────────────────────────
-    submitted = st.form_submit_button("📊  Calcular posición", use_container_width=True)
-
+futuros_df = st.data_editor(
+    futuros_default,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="futuros_editor",
+    column_config={
+        "Mes": st.column_config.SelectboxColumn(
+            "Mes de vencimiento",
+            options=MESES_VALIDOS,
+            required=True,
+            width="medium",
+        ),
+        "Precio (USD/tn)": st.column_config.NumberColumn(
+            "Precio del futuro (USD/tn)",
+            min_value=1.0, step=0.5, format="%.2f",
+            required=True,
+            width="medium",
+        ),
+    },
+    hide_index=True,
+    column_order=["Mes", "Precio (USD/tn)"],
+)
 
 # ════════════════════════════════════════════════════════════
-# RESULTADOS (solo tras hacer clic en Calcular)
+# SECCIÓN 3 — Opciones (tabla dinámica)
 # ════════════════════════════════════════════════════════════
-if not submitted:
+st.markdown('<div class="seccion">⚙️ &nbsp; Opciones &nbsp;'
+            '<span style="font-weight:400; font-size:0.83rem;">'
+            '(mismo mes de vencimiento que el futuro)</span></div>',
+            unsafe_allow_html=True)
+st.markdown('<p class="hint">Cargá una o más opciones. '
+            'Usá el botón ＋ para agregar filas.</p>', unsafe_allow_html=True)
+
+opciones_default = pd.DataFrame({
+    "Tipo":            ["Put"],
+    "Posición":        ["Compra"],
+    "Strike (USD/tn)": [315.0],
+    "Prima (USD/tn)":  [3.5],
+})
+
+opciones_df = st.data_editor(
+    opciones_default,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="opciones_editor",
+    column_config={
+        "Tipo": st.column_config.SelectboxColumn(
+            "Tipo", options=["Put", "Call"],
+            required=True, width="small",
+        ),
+        "Posición": st.column_config.SelectboxColumn(
+            "Posición", options=["Compra", "Venta"],
+            required=True, width="small",
+        ),
+        "Strike (USD/tn)": st.column_config.NumberColumn(
+            "Strike (USD/tn)", min_value=1.0, step=0.5, format="%.2f",
+            required=True, width="medium",
+        ),
+        "Prima (USD/tn)": st.column_config.NumberColumn(
+            "Prima (USD/tn)", min_value=0.01, step=0.05, format="%.2f",
+            required=True, width="medium",
+        ),
+    },
+    hide_index=True,
+    column_order=["Tipo", "Posición", "Strike (USD/tn)", "Prima (USD/tn)"],
+)
+
+# ── Botón Calcular ────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+calcular = st.button("📊  Calcular posición", type="primary", use_container_width=True)
+
+if calcular:
+    # Validar que haya al menos una opción completa
+    ops_validas = opciones_df.dropna(subset=["Tipo", "Posición", "Strike (USD/tn)", "Prima (USD/tn)"])
+    if len(ops_validas) == 0:
+        st.error("⚠  Ingresá al menos una opción completa para calcular.")
+        st.stop()
+
+    # Guardar inputs en session_state para que persistan si el usuario edita la tabla
+    st.session_state["mostrar"]  = True
+    st.session_state["snapshot"] = {
+        "cliente":     CLIENTE,
+        "producto":    PRODUCTO,
+        "precio_spot": PRECIO_SPOT,
+        "futuros":     futuros_df.dropna().to_dict("records"),
+        "opciones":    ops_validas.to_dict("records"),
+        "fecha":       date.today().strftime("%d/%m/%Y"),
+    }
+
+# ════════════════════════════════════════════════════════════
+# RESULTADOS
+# ════════════════════════════════════════════════════════════
+if not st.session_state.get("mostrar", False):
     st.markdown(
         f"<p style='color:{VC_GRIS_LIN}; text-align:center; margin-top:2rem;'>"
-        "Completá el formulario y hacé clic en <b>Calcular posición</b> para ver el análisis.</p>",
+        "Completá el formulario y hacé clic en <b>Calcular posición</b>.</p>",
         unsafe_allow_html=True
     )
     st.stop()
 
+snap     = st.session_state["snapshot"]
+futuros  = snap["futuros"]
+opciones = snap["opciones"]
+CLIENTE  = snap["cliente"]
+PRODUCTO = snap["producto"]
+PRECIO_SPOT = snap["precio_spot"]
+UNIDAD   = "USD/tn"
 
-# ── Cálculos ─────────────────────────────────────────────────
-TIPO     = TIPO.lower()      # "put" / "call"
-POSICION = POSICION.lower()  # "compra" / "venta"
-
-precio_min = min(PRECIO_SPOT, STRIKE, PRECIO_FUT) * 0.78
-precio_max = max(PRECIO_SPOT, STRIKE, PRECIO_FUT) * 1.22
-precios    = np.linspace(precio_min, precio_max, 600)
-UNIDAD     = "USD/tn"
+# Determinar mes de la primera opción/futuro para el título
+primer_mes = futuros[0]["Mes"] if futuros else "—"
 año_actual = date.today().year
 
-# ── Lógica de payoffs por los 4 casos ───────────────────────
-if TIPO == "put" and POSICION == "compra":
-    # Productor compra put → piso garantizado
-    payoff      = np.maximum(STRIKE - precios, 0)
-    y_con       = precios + payoff - PRIMA         # precio efectivo venta
-    y_sin       = precios                           # sin cobertura = vende a spot
-    precio_clave = STRIKE - PRIMA                  # piso
-    nombre_clave = "Piso garantizado"
-    breakeven    = STRIKE - PRIMA
-    y_spot_con  = PRECIO_SPOT + max(STRIKE - PRECIO_SPOT, 0) - PRIMA
-    y_spot_sin  = PRECIO_SPOT
-    itm_otm     = "OTM" if PRECIO_SPOT > STRIKE else "ITM"
-    y_label     = f"Precio Efectivo de Venta ({UNIDAD})"
-    titulo_op   = f"Cobertura a la Baja — Put Comprado | {MES} {año_actual}"
-    color_zona  = VC_VERDE
-    zona_label  = "Zona de protección"
-    perdida_max = PRIMA
-    ganancia_txt = "Ilimitada al alza (menos la prima)"
+# ── Rango de precios ─────────────────────────────────────────
+todos_precios_ref = (
+    [PRECIO_SPOT] +
+    [f["Precio (USD/tn)"] for f in futuros] +
+    [o["Strike (USD/tn)"] for o in opciones]
+)
+precio_min = min(todos_precios_ref) * 0.78
+precio_max = max(todos_precios_ref) * 1.22
+precios    = np.linspace(precio_min, precio_max, 600)
+
+# ── Calcular P&L de cada opción ──────────────────────────────
+op_lines   = []   # (y_array, label, color, tipo, posicion, strike, prima)
+y_combined = np.zeros_like(precios)
+
+for i, op in enumerate(opciones):
+    tipo     = str(op["Tipo"]).lower()
+    posicion = str(op["Posición"]).lower()
+    K        = float(op["Strike (USD/tn)"])
+    P        = float(op["Prima (USD/tn)"])
+    color    = COLORES_OPS[i % len(COLORES_OPS)]
+
+    if tipo == "put" and posicion == "compra":
+        y_op  = np.maximum(K - precios, 0) - P
+        label = f"Put Compra  K=${K:.0f}  P=${P}"
+        clave_txt = f"Piso: ${K - P:.1f}/tn"
+    elif tipo == "put" and posicion == "venta":
+        y_op  = P - np.maximum(K - precios, 0)
+        label = f"Put Venta   K=${K:.0f}  P=+${P}"
+        clave_txt = f"Breakeven: ${K - P:.1f}/tn"
+    elif tipo == "call" and posicion == "compra":
+        y_op  = np.maximum(precios - K, 0) - P
+        label = f"Call Compra K=${K:.0f}  P=${P}"
+        clave_txt = f"Breakeven: ${K + P:.1f}/tn"
+    else:  # call venta
+        y_op  = P - np.maximum(precios - K, 0)
+        label = f"Call Venta  K=${K:.0f}  P=+${P}"
+        clave_txt = f"Cap: ${K + P:.1f}/tn"
+
+    y_combined += y_op
+    op_lines.append((y_op, label, color, tipo, posicion, K, P, clave_txt))
+
+# Estadísticas de la posición combinada
+max_gain   = float(y_combined.max())
+max_loss   = float(y_combined.min())
+prima_neta = sum(
+    (-o["Prima (USD/tn)"] if str(o["Posición"]).lower() == "compra" else o["Prima (USD/tn)"])
+    for o in opciones
+)
+
+# Breakevens numéricos (cruces con cero)
+zero_crossings = []
+for j in range(len(y_combined) - 1):
+    if y_combined[j] * y_combined[j + 1] < 0:
+        x0, x1 = precios[j], precios[j + 1]
+        y0, y1 = y_combined[j], y_combined[j + 1]
+        zero_crossings.append(x0 - y0 * (x1 - x0) / (y1 - y0))
+
+be_str = "  /  ".join(f"${x:.1f}" for x in zero_crossings) if zero_crossings else "No hay en el rango"
+
+# ── Texto de análisis ─────────────────────────────────────────
+n_ops = len(opciones)
+if n_ops == 1:
+    op = opciones[0]
+    tipo = str(op["Tipo"]).lower()
+    pos  = str(op["Posición"]).lower()
+    K    = float(op["Strike (USD/tn)"])
+    P    = float(op["Prima (USD/tn)"])
+    if tipo == "put" and pos == "compra":
+        explicacion = (
+            f"{CLIENTE} adquirió un Put sobre {PRODUCTO} con strike en ${K:.0f}/tn "
+            f"y vencimiento en {primer_mes}, pagando una prima de ${P}/tn. "
+            f"Esta cobertura garantiza un precio mínimo de venta de ${K - P:.1f}/tn, "
+            f"independientemente de cuánto caiga el mercado. "
+            f"Si los precios suben, el productor participa de la suba descontando únicamente la prima."
+        )
+    elif tipo == "put" and pos == "venta":
+        explicacion = (
+            f"{CLIENTE} vendió un Put sobre {PRODUCTO} con strike en ${K:.0f}/tn, "
+            f"cobrando una prima de ${P}/tn. Asume la obligación de comprar {PRODUCTO} "
+            f"a ${K:.0f}/tn si el precio cae por debajo de ese nivel. "
+            f"La ganancia máxima es la prima cobrada (${P}/tn) cuando el precio finaliza sobre el strike. "
+            f"El breakeven se ubica en ${K - P:.1f}/tn."
+        )
+    elif tipo == "call" and pos == "compra":
+        explicacion = (
+            f"{CLIENTE} adquirió un Call sobre {PRODUCTO} con strike en ${K:.0f}/tn, "
+            f"pagando una prima de ${P}/tn. Esta posición permite participar de una suba "
+            f"por encima de ${K:.0f}/tn con pérdida máxima limitada a la prima. "
+            f"El punto de equilibrio se alcanza en ${K + P:.1f}/tn."
+        )
+    else:
+        explicacion = (
+            f"{CLIENTE} vendió un Call sobre {PRODUCTO} con strike en ${K:.0f}/tn, "
+            f"cobrando una prima de ${P}/tn. Cede el upside por encima del strike a cambio "
+            f"de ingresar la prima. La ganancia máxima es ${P}/tn. "
+            f"Por encima de ${K + P:.1f}/tn la posición genera pérdidas ilimitadas."
+        )
+else:
+    bullet_lines = []
+    for op in opciones:
+        tipo = str(op["Tipo"]).lower()
+        pos  = str(op["Posición"]).lower()
+        K    = float(op["Strike (USD/tn)"])
+        P    = float(op["Prima (USD/tn)"])
+        signo = "-" if pos == "compra" else "+"
+        bullet_lines.append(
+            f"{op['Tipo'].upper()} {op['Posición'].capitalize()} — "
+            f"Strike ${K:.0f}/tn | Prima {signo}${P}/tn."
+        )
+    bullets = "  ·  ".join(bullet_lines)
+    be_display = be_str if zero_crossings else "no hay breakeven en el rango simulado"
     explicacion = (
-        f"{CLIENTE} adquirió un Put sobre {PRODUCTO} con strike en ${STRIKE:.0f}/tn "
-        f"y vencimiento en {MES}. La prima pagada fue de ${PRIMA}/tn, lo que garantiza "
-        f"un precio mínimo de venta de ${precio_clave:.1f}/tn independientemente de cuánto "
-        f"caiga el mercado. La opción se encuentra {itm_otm} con el futuro de {MES} "
-        f"en ${PRECIO_FUT:.0f}/tn. Si el precio sube, el productor participa de la suba "
-        f"descontando únicamente la prima pagada."
+        f"{CLIENTE} estructuró una posición en derivados de {PRODUCTO} vto. {primer_mes} "
+        f"con {n_ops} operaciones: {bullets}  "
+        f"Prima neta: {'−' if prima_neta < 0 else '+'}"
+        f"${abs(prima_neta):.2f}/tn.  "
+        f"Breakeven(s): {be_display}."
     )
-
-elif TIPO == "put" and POSICION == "venta":
-    # Vende un put → cobra prima, asume obligación de compra si cae
-    payoff      = np.maximum(STRIKE - precios, 0)
-    y_con       = PRIMA - payoff                   # P&L del vendedor del put
-    y_sin       = np.zeros_like(precios)
-    precio_clave = STRIKE - PRIMA                  # breakeven (donde P&L = 0)
-    nombre_clave = "Breakeven"
-    breakeven    = STRIKE - PRIMA
-    y_spot_con  = PRIMA - max(STRIKE - PRECIO_SPOT, 0)
-    y_spot_sin  = 0.0
-    itm_otm     = "OTM" if PRECIO_SPOT > STRIKE else "ITM"
-    y_label     = f"Ganancia / Pérdida ({UNIDAD})"
-    titulo_op   = f"Put Vendido — Prima Cobrada | {MES} {año_actual}"
-    color_zona  = VC_AMARILLO
-    zona_label  = "Zona de ganancia"
-    perdida_max = f"Ilimitada a la baja (desde ${breakeven:.1f}/tn)"
-    ganancia_txt = f"Limitada a la prima: ${PRIMA}/tn"
-    explicacion = (
-        f"{CLIENTE} vendió un Put sobre {PRODUCTO} con strike en ${STRIKE:.0f}/tn "
-        f"y vencimiento en {MES}, cobrando una prima de ${PRIMA}/tn. Al vender el put, "
-        f"el cliente asume la obligación de comprar {PRODUCTO} a ${STRIKE:.0f}/tn si el "
-        f"precio cae por debajo de ese nivel. La ganancia máxima es la prima cobrada "
-        f"(${PRIMA}/tn) y se obtiene cuando el precio finaliza por encima del strike. "
-        f"El breakeven se ubica en ${breakeven:.1f}/tn; por debajo, la posición genera pérdidas."
-    )
-
-elif TIPO == "call" and POSICION == "compra":
-    # Compra un call → apuesta alcista, pérdida máxima = prima
-    payoff      = np.maximum(precios - STRIKE, 0)
-    y_con       = payoff - PRIMA                   # P&L neto
-    y_sin       = np.zeros_like(precios)
-    precio_clave = STRIKE + PRIMA                  # breakeven
-    nombre_clave = "Breakeven"
-    breakeven    = STRIKE + PRIMA
-    y_spot_con  = max(PRECIO_SPOT - STRIKE, 0) - PRIMA
-    y_spot_sin  = 0.0
-    itm_otm     = "ITM" if PRECIO_SPOT > STRIKE else "OTM"
-    y_label     = f"Ganancia / Pérdida ({UNIDAD})"
-    titulo_op   = f"Posición Alcista — Call Comprado | {MES} {año_actual}"
-    color_zona  = VC_VERDE
-    zona_label  = "Zona de ganancia"
-    perdida_max = PRIMA
-    ganancia_txt = "Ilimitada al alza"
-    explicacion = (
-        f"{CLIENTE} adquirió un Call sobre {PRODUCTO} con strike en ${STRIKE:.0f}/tn "
-        f"y vencimiento en {MES}, pagando una prima de ${PRIMA}/tn. Esta posición permite "
-        f"participar de una suba del mercado por encima de ${STRIKE:.0f}/tn con pérdida "
-        f"máxima limitada a la prima pagada. El punto de equilibrio se alcanza cuando el "
-        f"precio supera ${breakeven:.1f}/tn. Con el futuro de {MES} en ${PRECIO_FUT:.0f}/tn, "
-        f"la opción se encuentra {itm_otm} en ${abs(PRECIO_FUT - STRIKE):.0f}/tn del strike."
-    )
-
-else:  # call + venta
-    # Vende un call → cobra prima, cede el upside por encima del strike
-    payoff      = np.maximum(precios - STRIKE, 0)
-    y_con       = PRIMA - payoff                   # P&L del vendedor del call
-    y_sin       = np.zeros_like(precios)
-    precio_clave = STRIKE + PRIMA                  # donde empiezan las pérdidas
-    nombre_clave = "Cap / Breakeven"
-    breakeven    = STRIKE + PRIMA
-    y_spot_con  = PRIMA - max(PRECIO_SPOT - STRIKE, 0)
-    y_spot_sin  = 0.0
-    itm_otm     = "ITM" if PRECIO_SPOT > STRIKE else "OTM"
-    y_label     = f"Ganancia / Pérdida ({UNIDAD})"
-    titulo_op   = f"Call Vendido — Prima Cobrada | {MES} {año_actual}"
-    color_zona  = VC_AMARILLO
-    zona_label  = "Zona de ganancia"
-    perdida_max = f"Ilimitada al alza (desde ${breakeven:.1f}/tn)"
-    ganancia_txt = f"Limitada a la prima: ${PRIMA}/tn"
-    explicacion = (
-        f"{CLIENTE} vendió un Call sobre {PRODUCTO} con strike en ${STRIKE:.0f}/tn "
-        f"y vencimiento en {MES}, cobrando una prima de ${PRIMA}/tn. Al vender el call, "
-        f"cede el upside por encima del strike a cambio de ingresar la prima. "
-        f"La ganancia máxima es ${PRIMA}/tn (prima cobrada) y se mantiene mientras "
-        f"el precio finalice por debajo de ${STRIKE:.0f}/tn. "
-        f"Por encima de ${breakeven:.1f}/tn la posición genera pérdidas ilimitadas."
-    )
-
-diff_strike = abs(PRECIO_FUT - STRIKE)
-
 
 # ── Métricas rápidas ─────────────────────────────────────────
 st.markdown("---")
-m1, m2, m3, m4, m5, m6 = st.columns(6)
-with m1:
-    st.metric("Producto",     f"{PRODUCTO} {MES}")
-with m2:
-    st.metric("Opción",       f"{TIPO.upper()} {POSICION.upper()}")
-with m3:
-    st.metric("Futuro ref.",  f"${PRECIO_FUT:.2f}/tn")
-with m4:
-    st.metric("Strike",       f"${STRIKE:.2f}/tn")
-with m5:
-    st.metric(nombre_clave,   f"${precio_clave:.2f}/tn")
-with m6:
-    badge = f"{'🟢' if itm_otm == 'ITM' else '🟡'} {itm_otm}  (${diff_strike:.1f}/tn)"
-    st.metric("Estado opción", badge)
+n_fut = len(futuros)
+col_count = min(3 + n_ops, 6)
+m_cols = st.columns(col_count)
+m_cols[0].metric("Producto", f"{PRODUCTO}")
+m_cols[1].metric("Operaciones", f"{n_ops} opción{'es' if n_ops > 1 else ''}")
+m_cols[2].metric("Prima neta", f"{'−' if prima_neta < 0 else '+'}${abs(prima_neta):.2f}/tn")
+if len(m_cols) > 3 and zero_crossings:
+    m_cols[3].metric("Breakeven", f"${zero_crossings[0]:.1f}/tn")
+if len(m_cols) > 4:
+    m_cols[4].metric("Máx. ganancia", f"${max_gain:.2f}/tn")
+if len(m_cols) > 5:
+    m_cols[5].metric("Máx. pérdida", f"${max_loss:.2f}/tn")
 
+st.caption(f"Resultados al {snap['fecha']}. Cambiá los inputs y volvé a calcular para actualizar.")
 st.markdown("<br>", unsafe_allow_html=True)
 
 
@@ -328,11 +411,13 @@ st.markdown("<br>", unsafe_allow_html=True)
 # FUNCIÓN: generar figura matplotlib
 # ════════════════════════════════════════════════════════════
 def generar_figura():
-    fig = plt.figure(figsize=(13.0, 8.5), facecolor=VC_BLANCO)
-    ax_chart = fig.add_axes([0.06, 0.20, 0.57, 0.59])
-    ax_info  = fig.add_axes([0.67, 0.20, 0.29, 0.59])
+    fig = plt.figure(figsize=(13.0, 9.0), facecolor=VC_BLANCO)
 
-    # ── Gráfico principal ────────────────────────────────────
+    # ── Posiciones exactas: subir el chart para dejar espacio al footer ──
+    ax_chart = fig.add_axes([0.06, 0.28, 0.56, 0.54])   # bottom=28% (era 20%)
+    ax_info  = fig.add_axes([0.67, 0.28, 0.29, 0.54])
+
+    # ── Gráfico ──────────────────────────────────────────────
     ax = ax_chart
     ax.set_facecolor(VC_GRIS_FONDO)
     ax.grid(True, color=VC_BLANCO, linewidth=1.1, alpha=0.85, zorder=0)
@@ -343,95 +428,82 @@ def generar_figura():
         ax.spines[sp].set_color('#CCCCCC')
         ax.spines[sp].set_linewidth(0.8)
 
-    # Áreas sombreadas
-    ax.fill_between(precios, y_sin, y_con,
-                    where=(y_con >= y_sin),
-                    color=color_zona, alpha=0.13, zorder=1, label=zona_label)
-    if POSICION == "venta":
-        ax.fill_between(precios, y_con, y_sin,
-                        where=(y_con < y_sin),
-                        color=VC_ROJO, alpha=0.10, zorder=1, label="Zona de pérdida")
+    # Línea de referencia (cero)
+    ax.axhline(0, color=VC_GRIS_LIN, linewidth=1.8, linestyle='--',
+               label='Sin posición (ref.)', zorder=2, alpha=0.7)
 
-    # Línea de referencia
-    lbl_ref = "Sin cobertura" if TIPO == "put" and POSICION == "compra" else "Referencia (sin posición)"
-    if TIPO == "put" and POSICION == "compra":
-        ax.plot(precios, y_sin, color=VC_GRIS_LIN, linewidth=2.0,
-                linestyle='--', label=lbl_ref, zorder=3)
-    else:
-        ax.axhline(0, color=VC_GRIS_LIN, linewidth=2.0,
-                   linestyle='--', label=lbl_ref, zorder=3)
+    # Área combinada
+    ax.fill_between(precios, 0, y_combined,
+                    where=(y_combined >= 0), color=VC_VERDE,  alpha=0.10, zorder=1)
+    ax.fill_between(precios, y_combined, 0,
+                    where=(y_combined < 0),  color=VC_ROJO,   alpha=0.10, zorder=1)
 
-    # Línea de la opción
-    lbl_op = f"{TIPO.capitalize()} {POSICION.capitalize()} ${STRIKE:.0f} | Prima ${PRIMA}"
-    ax.plot(precios, y_con, color=color_zona if POSICION == "compra" else VC_AMARILLO,
-            linewidth=2.8, linestyle='-', label=lbl_op, zorder=4)
+    # Curvas individuales (si hay más de 1 opción)
+    if len(op_lines) > 1:
+        for y_op, label, color, *_ in op_lines:
+            ax.plot(precios, y_op, color=color, linewidth=1.4,
+                    linestyle=':', alpha=0.65, label=label, zorder=3)
 
-    # Líneas verticales
-    ax.axvline(PRECIO_SPOT, color=VC_AMARILLO,  linewidth=1.3, linestyle=':', alpha=0.85, zorder=2)
-    ax.axvline(PRECIO_FUT,  color=VC_VERDE_OSC, linewidth=1.3, linestyle=':', alpha=0.65, zorder=2)
-    ax.axvline(STRIKE,      color=VC_GRIS_LIN,  linewidth=1.0, linestyle=':', alpha=0.45, zorder=2)
+    # Curva combinada
+    lbl_combined = "P&L combinado" if n_ops > 1 else op_lines[0][1]
+    color_combined = VC_VERDE_OSC if n_ops > 1 else op_lines[0][2]
+    ax.plot(precios, y_combined, color=color_combined, linewidth=2.8,
+            linestyle='-', label=lbl_combined, zorder=4)
 
-    # Puntos en precio actual
-    ax.scatter([PRECIO_SPOT], [y_spot_con], color=color_zona if POSICION == "compra" else VC_AMARILLO,
-               s=55, zorder=5)
-    ax.scatter([PRECIO_SPOT], [y_spot_sin], color=VC_GRIS_LIN, s=55, zorder=5)
+    # Línea vertical: spot actual
+    ax.axvline(PRECIO_SPOT, color=VC_AMARILLO, linewidth=1.4,
+               linestyle=':', alpha=0.90, zorder=2)
 
-    # Anotaciones
-    def anotar(texto, xy, xytext, color):
-        ax.annotate(texto, xy=xy, xytext=xytext,
-                    fontsize=8.2, fontweight='bold', color=color,
-                    arrowprops=dict(arrowstyle='->', color=color, lw=1.1),
-                    bbox=dict(boxstyle='round,pad=0.3', fc=VC_BLANCO, ec=color, alpha=0.95, lw=1.0))
+    # Líneas verticales: futuros
+    for fut in futuros:
+        pf   = float(fut["Precio (USD/tn)"])
+        mes  = fut["Mes"]
+        ax.axvline(pf, color=VC_VERDE_OSC, linewidth=1.2,
+                   linestyle=':', alpha=0.55, zorder=2)
+        idx  = np.argmin(np.abs(precios - pf))
+        ypos = y_combined[idx]
+        ax.annotate(
+            f"Fut. {mes}\n${pf:.0f}/tn",
+            xy=(pf, ypos),
+            xytext=(pf - (precio_max - precio_min) * 0.14, ypos + (y_combined.max() - y_combined.min()) * 0.12),
+            fontsize=7.5, fontweight='bold', color=VC_VERDE_OSC,
+            arrowprops=dict(arrowstyle='->', color=VC_VERDE_OSC, lw=1.0),
+            bbox=dict(boxstyle='round,pad=0.25', fc=VC_BLANCO, ec=VC_VERDE_OSC, alpha=0.92, lw=0.9),
+        )
 
-    _off = (precio_max - precio_min) * 0.10
+    # Anotación spot
+    y_spot = float(y_combined[np.argmin(np.abs(precios - PRECIO_SPOT))])
+    _rng   = y_combined.max() - y_combined.min()
+    ax.annotate(
+        f"Spot\n${PRECIO_SPOT:.0f}/tn",
+        xy=(PRECIO_SPOT, y_spot),
+        xytext=(PRECIO_SPOT + (precio_max - precio_min) * 0.05, y_spot - _rng * 0.18),
+        fontsize=7.5, fontweight='bold', color=VC_AMARILLO,
+        arrowprops=dict(arrowstyle='->', color=VC_AMARILLO, lw=1.0),
+        bbox=dict(boxstyle='round,pad=0.25', fc=VC_BLANCO, ec=VC_AMARILLO, alpha=0.92, lw=0.9),
+    )
 
-    # Spot
-    anotar(f'Spot\n${PRECIO_SPOT:.0f}/tn',
-           xy=(PRECIO_SPOT, y_spot_sin),
-           xytext=(PRECIO_SPOT + (precio_max - precio_min)*0.04, y_spot_sin - _off),
-           color=VC_AMARILLO)
+    # Breakeven(s)
+    for xbe in zero_crossings[:2]:   # max 2 anotaciones
+        ax.axvline(xbe, color=VC_GRIS_LIN, linewidth=0.9, linestyle='-.', alpha=0.5, zorder=2)
+        ax.annotate(
+            f"BE ${xbe:.1f}",
+            xy=(xbe, 0),
+            xytext=(xbe + (precio_max - precio_min) * 0.02, _rng * 0.08),
+            fontsize=7.2, color=VC_GRIS_LIN,
+            bbox=dict(boxstyle='round,pad=0.2', fc=VC_BLANCO, ec=VC_GRIS_LIN, alpha=0.85, lw=0.8),
+        )
 
-    # Futuro
-    _idx_fut  = np.argmin(np.abs(precios - PRECIO_FUT))
-    _y_fut_sin = y_sin[_idx_fut]
-    anotar(f'Futuro {MES}\n${PRECIO_FUT:.0f}/tn',
-           xy=(PRECIO_FUT, _y_fut_sin),
-           xytext=(PRECIO_FUT - (precio_max - precio_min)*0.18, _y_fut_sin + _off * 0.7),
-           color=VC_VERDE_OSC)
-
-    # Strike + precio clave
-    if TIPO == "put" and POSICION == "compra":
-        ax.hlines(precio_clave, precio_min, STRIKE,
-                  colors=VC_VERDE, linewidths=1.1, linestyles=':', alpha=0.55, zorder=2)
-        anotar(f'{nombre_clave}\n${precio_clave:.1f}/tn',
-               xy=(precio_min + (STRIKE - precio_min)*0.25, precio_clave),
-               xytext=(precio_min + (STRIKE - precio_min)*0.25, precio_clave - _off * 0.9),
-               color=VC_VERDE)
-    else:
-        ax.axvline(precio_clave, color=color_zona, linewidth=1.2, linestyle='-.', alpha=0.6, zorder=2)
-        _idx_be  = np.argmin(np.abs(precios - precio_clave))
-        anotar(f'{nombre_clave}\n${precio_clave:.1f}/tn',
-               xy=(precio_clave, y_con[_idx_be]),
-               xytext=(precio_clave + (precio_max - precio_min)*0.04, y_con[_idx_be] + _off * 0.5),
-               color=color_zona)
-
-    # Etiquetas al borde derecho
-    _xe = precio_max + (precio_max - precio_min) * 0.01
-    _color_linea = color_zona if POSICION == "compra" else VC_AMARILLO
-    ax.text(_xe, y_con[-1],  lbl_op.split('|')[0].strip(), fontsize=8.2,
-            color=_color_linea, fontweight='bold', va='center', clip_on=False)
-
-    # Ejes
-    ax.set_xlabel(f'Precio {PRODUCTO} {MES} ({UNIDAD})', fontsize=10, color=VC_NEGRO, labelpad=8)
-    ax.set_ylabel(y_label, fontsize=10, color=VC_NEGRO, labelpad=8)
-    ax.set_xlim(precio_min, precio_max + (precio_max - precio_min)*0.13)
+    ax.set_xlabel(f"Precio {PRODUCTO} {primer_mes} (USD/tn)", fontsize=10, color=VC_NEGRO, labelpad=10)
+    ax.set_ylabel("P&L Derivados (USD/tn)", fontsize=10, color=VC_NEGRO, labelpad=8)
+    ax.set_xlim(precio_min, precio_max + (precio_max - precio_min) * 0.08)
     ax.tick_params(colors='#555555', labelsize=9)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f'${x:.0f}'))
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f'${y:.0f}'))
-    ax.legend(loc='upper left', fontsize=8.5, frameon=True, framealpha=0.95,
-              edgecolor='#DDDDDD', facecolor=VC_BLANCO)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f'${y:.1f}'))
+    ax.legend(loc='upper left', fontsize=7.8, frameon=True, framealpha=0.95,
+              edgecolor='#DDDDDD', facecolor=VC_BLANCO, ncol=1)
 
-    # ── Panel derecho de métricas ────────────────────────────
+    # ── Panel derecho ─────────────────────────────────────────
     ax_info.set_facecolor(VC_BLANCO)
     ax_info.set_xlim(0, 1)
     ax_info.set_ylim(0, 1)
@@ -442,95 +514,112 @@ def generar_figura():
         facecolor=VC_GRIS_FONDO, edgecolor=VC_VERDE_OSC,
         linewidth=1.2, zorder=0, transform=ax_info.transAxes))
 
-    ax_info.text(0.50, 0.94, "RESUMEN DE POSICIÓN", transform=ax_info.transAxes,
-                 fontsize=9, fontweight='bold', color=VC_VERDE_OSC, ha='center', va='top')
+    ax_info.text(0.50, 0.94, "RESUMEN DE POSICIÓN",
+                 transform=ax_info.transAxes, fontsize=8.8, fontweight='bold',
+                 color=VC_VERDE_OSC, ha='center', va='top')
     ax_info.plot([0.06, 0.94], [0.91, 0.91], color=VC_VERDE_OSC,
                  linewidth=0.8, transform=ax_info.transAxes, clip_on=False)
 
-    perdida_str = f"-${perdida_max}/tn" if isinstance(perdida_max, (int, float)) else str(perdida_max)
-    metricas = [
-        ("Producto",          f"{PRODUCTO} {MES}"),
-        ("Tipo",              f"{TIPO.upper()} {POSICION.upper()}"),
-        ("Precio Spot",       f"${PRECIO_SPOT:.2f}/tn"),
-        ("Futuro referencia", f"${PRECIO_FUT:.2f}/tn"),
-        ("Strike",            f"${STRIKE:.2f}/tn"),
-        ("Prima",             f"${PRIMA:.2f}/tn"),
-        ("─" * 18,            "─" * 10),
-        ("Estado",            f"{itm_otm}  ${diff_strike:.1f}/tn del strike"),
-        (nombre_clave,        f"${precio_clave:.2f}/tn"),
-        ("Pérdida máxima",    perdida_str),
-        ("Ganancia máxima",   ganancia_txt if isinstance(ganancia_txt, str) else f"${ganancia_txt}/tn"),
+    # Info del cliente y generales
+    metricas_top = [
+        ("Cliente",  CLIENTE[:22]),
+        ("Producto", f"{PRODUCTO}  vto. {primer_mes}"),
+        ("Spot",     f"${PRECIO_SPOT:.2f}/tn"),
+        ("Prima neta", f"{'−' if prima_neta < 0 else '+'}${abs(prima_neta):.2f}/tn"),
+        ("─" * 20,   "─" * 8),
+    ]
+    for fx, fut in enumerate(futuros[:3]):
+        metricas_top.append((f"Futuro {fut['Mes'][:3]}.", f"${float(fut['Precio (USD/tn)']):.2f}/tn"))
+    metricas_top.append(("─" * 20, "─" * 8))
+
+    # Una línea por opción
+    for ix, op in enumerate(opciones[:5]):   # máximo 5
+        K     = float(op["Strike (USD/tn)"])
+        P     = float(op["Prima (USD/tn)"])
+        signo = "−" if str(op["Posición"]).lower() == "compra" else "+"
+        metricas_top.append((
+            f"{op['Tipo'].upper()[:4]} {op['Posición'][:3]}.  K${K:.0f}",
+            f"P {signo}${P}"
+        ))
+
+    metricas_top += [
+        ("─" * 20,       "─" * 8),
+        ("Breakeven(s)", be_str if zero_crossings else "—"),
+        ("Máx. ganancia", f"${max_gain:.2f}/tn"),
+        ("Máx. pérdida",  f"${max_loss:.2f}/tn"),
     ]
 
-    for i, (k, v) in enumerate(metricas):
-        y_pos  = 0.87 - i * (0.78 / len(metricas))
+    n = len(metricas_top)
+    for i, (k, v) in enumerate(metricas_top):
+        y_pos  = 0.88 - i * (0.80 / n)
         is_sep = k.startswith("─")
         c_k    = VC_NEGRO if not is_sep else '#BBBBBB'
         c_v    = VC_VERDE_OSC if not is_sep else '#BBBBBB'
         fw     = 'normal'
-        if k == nombre_clave:
-            c_v = VC_VERDE; fw = 'bold'
-        if k == "Pérdida máxima":
+        if k == "Máx. pérdida":
             c_v = VC_ROJO
-        ax_info.text(0.10, y_pos, k, transform=ax_info.transAxes,
-                     fontsize=7.8, color=c_k, va='top', fontfamily='monospace')
-        ax_info.text(0.92, y_pos, v, transform=ax_info.transAxes,
-                     fontsize=7.8, color=c_v, va='top', ha='right',
+        if k in ("Breakeven(s)", "Máx. ganancia"):
+            c_v = VC_VERDE; fw = 'bold'
+        ax_info.text(0.08, y_pos, k, transform=ax_info.transAxes,
+                     fontsize=7.5, color=c_k, va='top', fontfamily='monospace')
+        ax_info.text(0.94, y_pos, v, transform=ax_info.transAxes,
+                     fontsize=7.5, color=c_v, va='top', ha='right',
                      fontweight=fw, fontfamily='monospace')
 
-    badge_color = VC_VERDE if itm_otm == "ITM" else VC_AMARILLO
-    ax_info.add_patch(mpatches.FancyBboxPatch(
-        (0.12, 0.025), 0.76, 0.065, boxstyle="round,pad=0.01",
-        facecolor=badge_color, edgecolor='none',
-        transform=ax_info.transAxes, zorder=5))
-    ax_info.text(0.50, 0.058, f"Opción {itm_otm}  ·  ${diff_strike:.0f}/tn del strike",
-                 transform=ax_info.transAxes, fontsize=8.3, color=VC_BLANCO,
-                 ha='center', va='center', fontweight='bold', zorder=6)
-
-    # ── Header ──────────────────────────────────────────────
+    # ── Header de la figura ───────────────────────────────────
+    titulo_op = (
+        f"{'Estrategia de Cobertura' if n_ops > 1 else op_lines[0][1].split('K=')[0].strip()} "
+        f"— {PRODUCTO} {primer_mes} {año_actual}"
+    )
     fig.add_artist(mpatches.FancyBboxPatch(
-        (0.0, 0.865), 1.0, 0.135, boxstyle="square,pad=0",
+        (0.0, 0.90), 1.0, 0.10, boxstyle="square,pad=0",
         facecolor=VC_VERDE_OSC, edgecolor='none',
         transform=fig.transFigure, zorder=10, clip_on=False))
-    fig.text(0.035, 0.953, "VALCEREAL",
-             fontsize=16, fontweight='bold', color=VC_BLANCO,
+    fig.text(0.035, 0.975, "VALCEREAL",
+             fontsize=15, fontweight='bold', color=VC_BLANCO,
              transform=fig.transFigure, va='top', zorder=11)
-    fig.text(0.035, 0.913, "Asesoramiento Financiero",
-             fontsize=8.5, color='#AADDCC',
+    fig.text(0.035, 0.935, "Asesoramiento Financiero",
+             fontsize=8, color='#AADDCC',
              transform=fig.transFigure, va='top', zorder=11)
-    fig.text(0.50, 0.948, titulo_op,
-             fontsize=13, fontweight='bold', color=VC_BLANCO,
+    fig.text(0.50, 0.972, titulo_op,
+             fontsize=12, fontweight='bold', color=VC_BLANCO,
              transform=fig.transFigure, va='top', ha='center', zorder=11)
     hoy = date.today().strftime("%d/%m/%Y")
-    fig.text(0.965, 0.953, CLIENTE,
-             fontsize=9.5, color=VC_BLANCO, fontweight='bold',
+    fig.text(0.965, 0.975, CLIENTE,
+             fontsize=9, color=VC_BLANCO, fontweight='bold',
              transform=fig.transFigure, va='top', ha='right', zorder=11)
-    fig.text(0.965, 0.913, hoy,
-             fontsize=8.5, color='#AADDCC',
+    fig.text(0.965, 0.935, hoy,
+             fontsize=8, color='#AADDCC',
              transform=fig.transFigure, va='top', ha='right', zorder=11)
 
-    # ── Footer / Análisis ────────────────────────────────────
+    # ── Footer / Análisis — bien separado del gráfico ─────────
+    # Footer va de 0% a 24%; el chart empieza en 28% → gap de 4%
     fig.add_artist(mpatches.FancyBboxPatch(
-        (0.0, 0.0), 1.0, 0.185, boxstyle="square,pad=0",
+        (0.0, 0.0), 1.0, 0.24, boxstyle="square,pad=0",
         facecolor=VC_GRIS_FONDO, edgecolor='none',
         transform=fig.transFigure, zorder=0, clip_on=False))
     fig.add_artist(plt.Line2D(
-        [0.035, 0.965], [0.182, 0.182], transform=fig.transFigure,
+        [0.035, 0.965], [0.235, 0.235], transform=fig.transFigure,
         color=VC_VERDE_OSC, linewidth=0.8, zorder=5))
-    fig.text(0.035, 0.173, "ANÁLISIS DE LA POSICIÓN",
+
+    fig.text(0.035, 0.224, "ANÁLISIS DE LA POSICIÓN",
              fontsize=8.5, fontweight='bold', color=VC_VERDE_OSC,
              transform=fig.transFigure, va='top', zorder=5)
+
     for i, line in enumerate(textwrap.wrap(explicacion, width=155)[:3]):
-        fig.text(0.035, 0.155 - i * 0.038, line, fontsize=8.3, color=VC_NEGRO,
+        fig.text(0.035, 0.205 - i * 0.050, line,
+                 fontsize=8.0, color=VC_NEGRO,
                  transform=fig.transFigure, va='top', zorder=5)
-    fig.text(0.035, 0.015,
+
+    fig.text(0.035, 0.018,
              f"Valcereal  ·  Análisis orientativo, no constituye asesoramiento de inversión  ·  {hoy}",
-             fontsize=7.5, color='#999999', transform=fig.transFigure, va='bottom', zorder=5)
+             fontsize=7.5, color='#999999',
+             transform=fig.transFigure, va='bottom', zorder=5)
 
     return fig
 
 
-# ── Renderizar gráfico ────────────────────────────────────────
+# ── Renderizar en pantalla ────────────────────────────────────
 with st.spinner("Generando análisis..."):
     fig = generar_figura()
     st.pyplot(fig, use_container_width=True)
@@ -542,22 +631,26 @@ st.markdown("---")
 st.markdown("#### 📄 Exportar One-Pager")
 col_desc, col_btn = st.columns([3, 1])
 with col_desc:
+    ops_resumen = "  |  ".join(
+        f"{o['Tipo'].upper()} {o['Posición'][:3]}. K${float(o['Strike (USD/tn)']):.0f}"
+        for o in opciones
+    )
     st.markdown(
-        f"**{CLIENTE}** &nbsp;·&nbsp; {PRODUCTO} {MES} &nbsp;·&nbsp; "
-        f"{TIPO.upper()} {POSICION.upper()} — Strike ${STRIKE:.0f} | Prima ${PRIMA}  \n"
-        f"*Generado el {date.today().strftime('%d/%m/%Y')}*"
+        f"**{CLIENTE}** &nbsp;·&nbsp; {PRODUCTO} {primer_mes} &nbsp;·&nbsp; {ops_resumen}  \n"
+        f"*Generado el {snap['fecha']}*"
     )
 with col_btn:
-    fig_dl    = generar_figura()
-    buf       = io.BytesIO()
+    fig_dl = generar_figura()
+    buf    = io.BytesIO()
     with PdfPages(buf) as pdf:
         pdf.savefig(fig_dl, bbox_inches='tight', facecolor=VC_BLANCO)
     buf.seek(0)
     plt.close(fig_dl)
 
     nombre_pdf = (
-        f"Valcereal_{PRODUCTO}_{TIPO.upper()}_{POSICION.capitalize()}_"
-        f"{MES}_{CLIENTE.replace(' ', '_')}.pdf"
+        f"Valcereal_{PRODUCTO}_{primer_mes}_"
+        f"{CLIENTE.replace(' ', '_')}_"
+        f"{date.today().strftime('%Y%m%d')}.pdf"
     )
     st.download_button(
         label="⬇  Descargar PDF",
@@ -566,6 +659,5 @@ with col_btn:
         mime="application/pdf",
     )
 
-# ── Análisis expandible ───────────────────────────────────────
-with st.expander("📝 Ver análisis completo de la posición"):
+with st.expander("📝 Ver análisis completo"):
     st.write(explicacion)
